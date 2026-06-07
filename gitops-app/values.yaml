@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: 394422659307.dkr.ecr.eu-west-1.amazonaws.com/gitops
-  tag: f3760cbc7ce13c4c94922510d1e16fb1803dbcba
+  tag: 5424dde30716c47d459600845cae9e94d1f1ef4e
 
 service:
   type: LoadBalancer
