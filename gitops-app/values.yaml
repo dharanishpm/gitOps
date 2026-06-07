@@ -1,0 +1,11 @@
+replicaCount: 1
+
+image:
+  repository: 394422659307.dkr.ecr.eu-west-1.amazonaws.com/gitops
+  tag: f3760cbc7ce13c4c94922510d1e16fb1803dbcba
+
+service:
+  type: LoadBalancer
+  port: 80
+
+containerPort: 8080
