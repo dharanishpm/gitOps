@@ -1,71 +1,53 @@
-name: Update GitOps Config and Deploy
+name: Build and Push to ECR
 
 on:
-  workflow_run:
-    workflows: ["Build and Push to ECR"]
-    types:
-      - completed
+  push:
     branches:
       - main
 
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ECR_REPOSITORY: gitops
+  AWS_REGION: eu-west-1
+
 jobs:
-  deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
 
     steps:
-    - name: Checkout GitOps config repository
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ github.repository_owner }}/gitops-config
-        token: ${{ secrets.GITHUB_TOKEN }}
-        path: gitops-config
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Download artifact
-      uses: actions/github-script@v7
-      with:
-        script: |
-          let allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.payload.workflow_run.id,
-          });
-          let matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
-            return artifact.name == "image-uri"
-          })[0];
-          let download = await github.rest.actions.downloadArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: matchArtifact.id,
-              archive_format: 'zip',
-          });
-          let fs = require('fs');
-          fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/image_uri.zip`, Buffer.from(download.data));
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
 
-    - name: Unzip artifact
-      run: unzip image_uri.zip
+      - name: Build Application
+        run: mvn clean package -DskipTests
 
-    - name: Read image URI
-      id: image
-      run: echo "URI=$(cat image_uri.txt)" >> $GITHUB_OUTPUT
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::394422659307:role/gitPushECR
+          aws-region: eu-west-1
 
-    - name: Update deployment manifest
-      run: |
-        cd gitops-config
-        sed -i 's|image: .*|image: ${{ steps.image.outputs.URI }}|g' overlays/prod/deployment.yaml
-        cat overlays/prod/deployment.yaml
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Commit and push changes
-      run: |
-        cd gitops-config
-        git config --global user.email "github-actions[bot]@github.com"
-        git config --global user.name "GitHub Actions Bot"
-        git add overlays/prod/deployment.yaml
-        git commit -m "Update image to ${{ steps.image.outputs.URI }}" || echo "No changes to commit"
-        git push
+      - name: Build Docker Image
+        run: docker build -t gitops .
 
-    - name: Notify deployment
-      run: echo "GitOps config updated. ArgoCD will automatically deploy the changes to EKS."
+      - name: Tag Image
+        run: |
+          docker tag gitops:latest \
+          394422659307.dkr.ecr.eu-west-1.amazonaws.com/gitops:${{ github.sha }}
+
+      - name: Push Image
+        run: |
+          docker push \
+          394422659307.dkr.ecr.eu-west-1.amazonaws.com/gitops:${{ github.sha }}
